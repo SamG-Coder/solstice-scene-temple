@@ -1,0 +1,52 @@
+name: Pages
+
+# Serves the scene that scene.txt names, for the Solstice viewer to stream. The scene is
+# downloaded from its release and checked against the recorded SHA-256, so the site always
+# holds exactly what was published.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and check the scene
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          read -r name release digest < <(grep -v '^#' scene.txt | grep .)
+          # A release is OWNER/REPO@TAG, or a tag of this repository.
+          if [[ "$release" == *@* ]]; then repo=${release%@*}; tag=${release#*@}; else repo=${{ github.repository }}; tag=$release; fi
+          mkdir site
+          gh release download "$tag" --repo "$repo" --pattern "$name" --dir site
+          echo "$digest  site/$name" | sha256sum --check
+          printf '<!doctype html><title>%s</title><p>A scene for <a href="https://samg-coder.github.io/solstice/">Solstice</a>: <code>%s</code>.\n' "$name" "$name" > site/index.html
+          ls -l site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+        with:
+          timeout: 1800000
